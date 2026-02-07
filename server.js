@@ -1,17 +1,19 @@
 import dotenv from 'dotenv';
 dotenv.config();
-// await connectDB();
 import express from 'express';
 import cors from 'cors';
 import crypto from 'crypto';
 import path from 'path';
 import fs from 'fs';
-import connectDB from './db/db';
+import connectDB from './db/db.js';
 import nodemailer from 'nodemailer';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
 import { fileURLToPath } from 'url';
+
+await connectDB();
+console.log('✅ MongoDB connected');
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -86,15 +88,7 @@ app.use('/payment/webhook', express.raw({ type: '*/*' }));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 // DB connection (chached, safe )
-app.use(async (req, res, next) => {
-  try {
-    await connectDB();
-    next();
-  } catch (err) {
-    console.error('❌ DB connection error:', err);
-    res.status(500).json({ error: 'Database connection failed' });
-  }
-});
+
 
 // JWT Token Generation
 function generateJWT(userId) {
