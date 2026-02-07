@@ -6,6 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "generate-admin": "node generate-admin-password.js",
+    "import:bundles": "node scripts/import_bundles.mjs",
+    "build": "node scripts/vercel_build.mjs",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
