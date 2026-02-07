@@ -12,8 +12,7 @@ import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
 import { fileURLToPath } from 'url';
 
-await connectDB();
-console.log('✅ MongoDB connected');
+let dbConnected = false;
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -82,12 +81,25 @@ const User = mongoose.models.User || mongoose.model('User', userSchema);
 const Order = mongoose.models.Order || mongoose.model('Order', orderSchema);
 const Bundle = mongoose.models.Bundle || mongoose.model('Bundle', bundleSchema);
 
-// Middleware
+// Middleware - Connect to DB on first request
+app.use(async (req, res, next) => {
+  if (!dbConnected) {
+    try {
+      await connectDB();
+      dbConnected = true;
+      console.log('✅ MongoDB connected');
+    } catch (err) {
+      console.error('❌ MongoDB connection failed:', err.message);
+      return res.status(503).json({ error: 'Database connection failed' });
+    }
+  }
+  next();
+});
+
 app.use(cors());
 app.use('/payment/webhook', express.raw({ type: '*/*' }));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
-// DB connection (chached, safe )
 
 
 // JWT Token Generation
