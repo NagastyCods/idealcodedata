@@ -136,6 +136,16 @@ function generateJWT(userId) {
   return jwt.sign({ userId }, JWT_SECRET, { expiresIn: '7d' });
 }
 
+// DEBUG: Check admin hash on Vercel
+app.get('/api/admin/debug', (req, res) => {
+  res.json({
+    hashSet: !!ADMIN_PASSWORD_HASH,
+    hashLength: ADMIN_PASSWORD_HASH?.length,
+    hashFirst20: ADMIN_PASSWORD_HASH?.substring(0, 20) + '...',
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // JWT Verification Middleware
 function verifyToken(req, res, next) {
   const auth = req.headers.authorization;
@@ -581,7 +591,12 @@ app.post('/api/admin/login', async (req, res) => {
   }
 
   try {
+    console.log('🔐 Admin login attempt...');
+    console.log('Hash length:', ADMIN_PASSWORD_HASH?.length, 'starts with:', ADMIN_PASSWORD_HASH?.substring(0, 10));
+    
     const isValid = await bcrypt.compare(password, ADMIN_PASSWORD_HASH);
+    
+    console.log('✅ Bcrypt compare completed, valid:', isValid);
 
     if (!isValid) {
       return res.status(401).json({ error: 'Invalid password' });
@@ -590,7 +605,12 @@ app.post('/api/admin/login', async (req, res) => {
     const token = jwt.sign({ isAdmin: true, userId: 'admin' }, JWT_SECRET, { expiresIn: '24h' });
     res.json({ token });
   } catch (err) {
-    console.error('❌ Admin login error:', err);
+    console.error('❌ Admin login error:', err?.message || err);
+    console.error('Hash format check:', {
+      hashExists: !!ADMIN_PASSWORD_HASH,
+      hashLength: ADMIN_PASSWORD_HASH?.length,
+      hashStart: ADMIN_PASSWORD_HASH?.substring(0, 15),
+    });
     res.status(500).json({ error: 'Login failed' });
   }
 });
