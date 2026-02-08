@@ -4,13 +4,17 @@ import path from 'path';
 import fs from 'fs';
 import mongoose from 'mongoose';
 import connectDB from '../db/db.js';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 async function run() {
   try {
     await connectDB();
     console.log('✅ MongoDB connected');
 
-    const bundlesPath = path.join(process.cwd(), 'data', 'bundles.json');
+    const bundlesPath = path.join(__dirname, '..', 'data', 'bundles.json');
+    console.log('📁 Loading bundles from:', bundlesPath);
     const raw = fs.readFileSync(bundlesPath, 'utf8');
     const bundles = JSON.parse(raw);
 
@@ -45,7 +49,8 @@ async function run() {
 
     console.log(`✅ Upserted ${inserted} bundles`);
   } catch (err) {
-    console.error('❌ Import failed:', err);
+    console.error('❌ Import failed:', err.message);
+    console.error('Stack:', err.stack);
     process.exitCode = 1;
   } finally {
     try {

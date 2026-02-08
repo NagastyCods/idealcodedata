@@ -1,19 +1,29 @@
 import { env } from 'process';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { execSync } from 'child_process';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 async function main() {
+  console.log('🔨 Vercel build starting...');
+  
   if (!env.MONGODB_URI) {
-    console.log('MONGODB_URI not set — skipping bundles import during build.');
+    console.warn('⚠️  MONGODB_URI not set — bundles import will be skipped.');
     return;
   }
 
-  console.log('MONGODB_URI found — running bundles import...');
+  console.log('✅ MONGODB_URI found — importing bundles...');
 
   try {
-    const { default: runImport } = await import('./import_bundles.mjs');
-    // import_bundles.mjs runs itself when imported; if it exports nothing that's fine.
+    execSync('node scripts/import_bundles.mjs', {
+      cwd: path.join(__dirname, '..'),
+      stdio: 'inherit', // Show full output
+    });
+    console.log('✅ Build completed successfully');
   } catch (err) {
-    console.error('Bundles import failed during build:', err);
-    // Do not fail the build — just warn.
+    console.error('❌ Build failed:', err.message);
+    process.exitCode = 1;
   }
 }
 
