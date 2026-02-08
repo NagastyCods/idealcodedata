@@ -81,13 +81,42 @@ const User = mongoose.models.User || mongoose.model('User', userSchema);
 const Order = mongoose.models.Order || mongoose.model('Order', orderSchema);
 const Bundle = mongoose.models.Bundle || mongoose.model('Bundle', bundleSchema);
 
-// Middleware - Connect to DB on first request
+// Middleware - Connect to DB on first request and import bundles if empty
 app.use(async (req, res, next) => {
   if (!dbConnected) {
     try {
       await connectDB();
       dbConnected = true;
       console.log('✅ MongoDB connected');
+
+      try {
+        const count = await Bundle.countDocuments();
+        if (!count) {
+          const bundlesPath = path.join(__dirname, 'data', 'bundles.json');
+          console.log('📁 bundles collection empty — importing from', bundlesPath);
+          const raw = fs.readFileSync(bundlesPath, 'utf8');
+          const bundles = JSON.parse(raw || '[]');
+          let upserted = 0;
+          for (const b of bundles) {
+            if (!b || !b.id) continue;
+            const doc = {
+              id: String(b.id),
+              name: b.name || null,
+              carrier: b.carrier || null,
+              data: b.data || null,
+              validity: b.validity || null,
+              price: typeof b.price === 'number' ? b.price : Number(b.price || 0),
+              currency: b.currency || 'GHS',
+            };
+            await Bundle.updateOne({ id: doc.id }, { $set: doc }, { upsert: true });
+            upserted += 1;
+          }
+          console.log(`✅ Imported ${upserted} bundles into DB`);
+        }
+      } catch (impErr) {
+        console.error('❌ Bundles import failed at runtime:', impErr?.message || impErr);
+      }
+
     } catch (err) {
       console.error('❌ MongoDB connection failed:', err.message);
       return res.status(503).json({ error: 'Database connection failed' });
