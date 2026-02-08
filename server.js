@@ -575,6 +575,11 @@ app.post('/api/admin/login', async (req, res) => {
     return res.status(400).json({ error: 'Password required' });
   }
 
+  if (!ADMIN_PASSWORD_HASH) {
+    console.error('❌ ADMIN_PASSWORD_HASH not set in environment variables');
+    return res.status(500).json({ error: 'Admin password not configured' });
+  }
+
   try {
     const isValid = await bcrypt.compare(password, ADMIN_PASSWORD_HASH);
 
@@ -585,7 +590,7 @@ app.post('/api/admin/login', async (req, res) => {
     const token = jwt.sign({ isAdmin: true, userId: 'admin' }, JWT_SECRET, { expiresIn: '24h' });
     res.json({ token });
   } catch (err) {
-    console.error('Admin login error:', err);
+    console.error('❌ Admin login error:', err);
     res.status(500).json({ error: 'Login failed' });
   }
 });
