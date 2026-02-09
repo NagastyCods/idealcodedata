@@ -601,7 +601,10 @@ app.post('/api/admin/login', async (req, res) => {
     if (!isValid) {
       return res.status(401).json({ error: 'Invalid password' });
     }
-
+    if(!JWT_SECRET){
+      console.error("JWT_SECRET not set");
+      return res.status(500).json({error: 'JWT not configured'});
+    }
     const token = jwt.sign({ isAdmin: true, userId: 'admin' }, JWT_SECRET, { expiresIn: '24h' });
     res.json({ token });
   } catch (err) {
