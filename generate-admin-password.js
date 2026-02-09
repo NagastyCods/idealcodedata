@@ -1,6 +1,6 @@
 import { hash as _hash } from 'bcrypt';
 
-const adminPassword = process.argv[2] || 'admin123';
+const adminPassword = process.argv[2] || 'neigus1122';
 
 _hash(adminPassword, 10).then(hash => {
   console.log('Admin Password Hash:');
