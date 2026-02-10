@@ -956,9 +956,10 @@ body {
   .whatsapp-float {
     width: 60px;
     height: 60px;
-    padding: 0;
-    border-radius: 50%;
-    justify-content: center;
+    padding: 10px 14px;
+    border-radius: 40px;
+    font-size: 14px;
+    /* justify-content: center; */
   }
 
   .whatsapp-label {
@@ -966,7 +967,7 @@ body {
   }
 
   .whatsapp-float i {
-    font-size: 26px;
+    font-size: 18px;
   }
 }
 
