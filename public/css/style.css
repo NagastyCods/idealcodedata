@@ -959,7 +959,7 @@ body {
     padding: 10px 14px;
     border-radius: 40px;
     font-size: 14px;
-    /* justify-content: center; */
+    justify-content: center;
   }
 
   .whatsapp-label {
