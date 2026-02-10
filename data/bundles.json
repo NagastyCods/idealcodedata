@@ -1,14 +1,14 @@
 [
   { "id": "mtn-1gb-non-expiry", "carrier": "MTN", "name": "1GB Non Expiry", "data": "1GB", "validity": "Non Expiry", "price": 5.5, "currency": "GHS" },
   { "id": "mtn-2gb-non-expiry", "carrier": "MTN", "name": "2GB Non Expiry", "data": "2GB", "validity": "Non Expiry", "price": 11, "currency": "GHS" },
-  { "id": "mtn-3gb-non-expiry", "carrier": "MTN", "name": "3GB Non Expiry", "data": "3GB", "validity": "Non Expiry", "price": 18, "currency": "GHS" },
+  { "id": "mtn-3gb-non-expiry", "carrier": "MTN", "name": "3GB Non Expiry", "data": "3GB", "validity": "Non Expiry", "price": 15, "currency": "GHS" },
   { "id": "mtn-4gb-non-expiry", "carrier": "MTN", "name": "4GB Non Expiry", "data": "4GB", "validity": "Non Expiry", "price": 23, "currency": "GHS" },
   { "id": "mtn-5gb-non-expiry", "carrier": "MTN", "name": "5GB Non Expiry", "data": "5GB", "validity": "Non Expiry", "price": 28, "currency": "GHS" },
   { "id": "mtn-6gb-non-expiry", "carrier": "MTN", "name": "6GB Non Expiry", "data": "6GB", "validity": "Non Expiry", "price": 34, "currency": "GHS" },
   { "id": "mtn-7gb-non-expiry", "carrier": "MTN", "name": "7GB Non Expiry", "data": "7GB", "validity": "Non Expiry", "price": 36, "currency": "GHS" },
   { "id": "mtn-8gb-non-expiry", "carrier": "MTN", "name": "8GB Non Expiry", "data": "8GB", "validity": "Non Expiry", "price": 42, "currency": "GHS" },
   { "id": "mtn-9gb-non-expiry", "carrier": "MTN", "name": "9GB Non Expiry", "data": "9GB", "validity": "Non Expiry", "price": 46, "currency": "GHS" },
-  { "id": "mtn-10gb-non-expiry", "carrier": "MTN", "name": "10GB Non Expiry", "data": "10GB", "validity": "Non Expiry", "price": 50, "currency": "GHS" },
+  { "id": "mtn-10gb-non-expiry", "carrier": "MTN", "name": "10GB Non Expiry", "data": "10GB", "validity": "Non Expiry", "price": 48, "currency": "GHS" },
   { "id": "mtn-15gb-non-expiry", "carrier": "MTN", "name": "15GB Non Expiry", "data": "15GB", "validity": "Non Expiry", "price": 72, "currency": "GHS" },
   { "id": "mtn-20gb-non-expiry", "carrier": "MTN", "name": "20GB Non Expiry", "data": "20GB", "validity": "Non Expiry", "price": 92, "currency": "GHS" },
   { "id": "mtn-25gb-non-expiry", "carrier": "MTN", "name": "25GB Non Expiry", "data": "25GB", "validity": "Non Expiry", "price": 118, "currency": "GHS" },
@@ -28,12 +28,12 @@
   { "id": "airteltigo-8gb-non-expiry", "carrier": "AirtelTigo", "name": "8GB Non Expiry", "data": "8GB", "validity": "Non Expiry", "price": 34, "currency": "GHS" },
   { "id": "airteltigo-10gb-non-expiry", "carrier": "AirtelTigo", "name": "10GB Non Expiry", "data": "10GB", "validity": "Non Expiry", "price": 43, "currency": "GHS" },
   
-  { "id": "telecel-500mb-daily", "carrier": "Telecel", "name": "500MB Daily", "data": "500MB", "validity": "1 day", "price": 2.5, "currency": "GHS" },
-  { "id": "telecel-1gb-daily", "carrier": "Telecel", "name": "1GB Daily", "data": "1GB", "validity": "1 day", "price": 3.5, "currency": "GHS" },
-  { "id": "telecel-1gb-weekly", "carrier": "Telecel", "name": "1GB Weekly", "data": "1GB", "validity": "7 days", "price": 7.5, "currency": "GHS" },
-  { "id": "telecel-2gb-weekly", "carrier": "Telecel", "name": "2GB Weekly", "data": "2GB", "validity": "7 days", "price": 12, "currency": "GHS" },
-  { "id": "telecel-1gb-monthly", "carrier": "Telecel", "name": "1GB Monthly", "data": "1GB", "validity": "30 days", "price": 14, "currency": "GHS" },
-  { "id": "telecel-2gb-monthly", "carrier": "Telecel", "name": "2GB Monthly", "data": "2GB", "validity": "30 days", "price": 24, "currency": "GHS" },
-  { "id": "telecel-5gb-monthly", "carrier": "Telecel", "name": "5GB Monthly", "data": "5GB", "validity": "30 days", "price": 44, "currency": "GHS" },
-  { "id": "telecel-10gb-monthly", "carrier": "Telecel", "name": "10GB Monthly", "data": "10GB", "validity": "30 days", "price": 78, "currency": "GHS" }
+  { "id": "telecel-5gb-non-expiry", "carrier": "Telecel", "name": "5GB Non Expiry", "data": "5GB", "validity": "Non Expiry", "price": 25.5, "currency": "GHS" },
+  { "id": "telecel-10gb-non-expiry", "carrier": "Telecel", "name": "10GB Non Expiry", "data": "10GB", "validity": "Non Expiry", "price": 45.5, "currency": "GHS" },
+  { "id": "telecel-15gb-non-expiry", "carrier": "Telecel", "name": "15GB Non Expiry", "data": "15GB", "validity": "Non Expiry", "price": 65.5, "currency": "GHS" },
+  { "id": "telecel-20gb-non-expiry", "carrier": "Telecel", "name": "20GB Non Expiry", "data": "20GB", "validity": "Non Expiry", "price": 88.5, "currency": "GHS" },
+  { "id": "telecel-25gb-non-expiry", "carrier": "Telecel", "name": "25GB Non Expiry", "data": "25GB", "validity": "Non Expiry", "price": 110.5, "currency": "GHS" },
+  { "id": "telecel-30gb-non-expiry", "carrier": "Telecel", "name": "30GB Non Expiry", "data": "30GB", "validity": "Non Expiry", "price": 150.5, "currency": "GHS" },
+  { "id": "telecel-35gb-non-expiry", "carrier": "Telecel", "name": "35GB Non Expiry", "data": "35B", "validity": "Non Expiry", "price": 165.5, "currency": "GHS" },
+  { "id": "telecel-40gb-non-expiry", "carrier": "Telecel", "name": "40GB Non Expiry", "data": "40GB", "validity": "Non Expiry", "price": 180.5, "currency": "GHS" }
 ]

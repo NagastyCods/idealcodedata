@@ -921,6 +921,38 @@ body {
 .toast.error {
   background: var(--error);
 }
+/* FLOAT WHATSAPP */
+.whatsapp-float {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background-color: #d4b93e;
+  color: white;
+  padding: 12px 18px;
+  border-radius: 50px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  text-decoration: none;
+  box-shadow: 2px 4px 10px rgba(0, 0, 0, 0.3);
+  z-index: 1000;
+  transition: 0.3s ease;
+}
+
+.whatsapp-float i {
+  font-size: 22px;
+}
+
+.whatsapp-float:hover {
+  background-color: #9c7405;
+  transform: scale(1.05);
+}
+
+.whatsapp-label {
+  font-weight: 500;
+}
+
 
 /* Responsive */
 @media (max-width: 640px) {
