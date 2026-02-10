@@ -172,7 +172,7 @@ function fetchBundles() {
   const params = new URLSearchParams();
 
   if (carrier) params.set('carrier', carrier);
-  if (validity) params.set('validity', validity);
+  if (validity) params.set('validity', 'Non-expiry');
 
   const qs = params.toString();
   const url = `${API_BASE}/api/bundles${qs ? '?' + qs : ''}`;

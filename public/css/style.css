@@ -937,7 +937,7 @@ body {
   text-decoration: none;
   box-shadow: 2px 4px 10px rgba(0, 0, 0, 0.3);
   z-index: 1000;
-  transition: 0.3s ease;
+  transition: all 0.3s ease;
 }
 
 .whatsapp-float i {
@@ -946,11 +946,28 @@ body {
 
 .whatsapp-float:hover {
   background-color: #9c7405;
-  transform: scale(1.05);
+  transform: translate(-3px);
 }
 
 .whatsapp-label {
   font-weight: 500;
+}
+@media (max-width: 768px) {
+  .whatsapp-float {
+    width: 60px;
+    height: 60px;
+    padding: 0;
+    border-radius: 50%;
+    justify-content: center;
+  }
+
+  .whatsapp-label {
+    display: none;
+  }
+
+  .whatsapp-float i {
+    font-size: 26px;
+  }
 }
 
 
