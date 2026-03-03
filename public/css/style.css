@@ -952,6 +952,25 @@ body {
 .whatsapp-label {
   font-weight: 500;
 }
+/* What our data support */
+.container h2{
+  margin: 0 0 2rem;
+  font-size: 1.75rem;
+  font-weight: 700;
+  text-align: center;
+  margin-top: auto;
+  font-size: 16px;
+  color: var(--text-muted);
+}
+ul{
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+ul li{
+  text-decoration: none;
+  color: var(--text-muted);
+}
 @media (max-width: 768px) {
   .whatsapp-float {
     width: 60px;
