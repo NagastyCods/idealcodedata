@@ -25,8 +25,8 @@ const JWT_SECRET = (process.env.JWT_SECRET || '').trim();
 const PAYSTACK_SECRET = (process.env.PAYSTACK_SECRET_KEY || '').trim();
 const GMAIL_USER = (process.env.GMAIL_USER || '').trim();
 const GMAIL_APP_PASSWORD = (process.env.GMAIL_APP_PASSWORD || '').trim();
-const fetch = (...args) =>
-  import('node-fetch').then(({ default: fetch }) => fetch(...args));
+
+const fetch = global.fetch;
 
 
 // MongoDB Schemas
@@ -620,10 +620,10 @@ app.post('/api/admin/login', async (req, res) => {
 
 // POST Payment Initialize
 app.post('/api/payment/initialize', async (req, res) => {
-  const { orderId, email, amount } = req.body;
+  const { orderId, email /*, amount */ } = req.body;
 
-  if (!orderId || !amount || amount <= 0) {
-    return res.status(400).json({ error: 'orderId and amount required' });
+  if (!orderId) {
+    return res.status(400).json({ error: 'orderId required' });
   }
 
   if (!PAYSTACK_SECRET) {
@@ -641,6 +641,9 @@ app.post('/api/payment/initialize', async (req, res) => {
       return res.status(400).json({ error: 'Order already processed' });
     }
 
+    // use trusted total from database instead of value supplied by client
+    const amountToCharge = Math.round(order.total * 100);
+
     let baseUrl = req.headers.origin || req.headers.referer;
     try {
       baseUrl = baseUrl ? new URL(baseUrl).origin : null;
@@ -652,8 +655,8 @@ app.post('/api/payment/initialize', async (req, res) => {
     const callbackUrl = `${baseUrl}/payment/callback`;
 
     const payload = {
-      email: email || order.email || `customer-${order.phone}@idealdata.gh`,
-      amount: Math.round(Number(amount) * 100),
+      email: email || order.email || `customer-${order.phone}@idealdatahub.gh`,
+      amount: amountToCharge,
       currency: 'GHS',
       reference: orderId,
       callback_url: callbackUrl,
@@ -706,11 +709,18 @@ app.post('/payment/webhook', async (req, res) => {
       const order = await Order.findOne({ orderId: ref });
 
       if (order && order.status === 'pending_payment') {
-        order.status = 'paid';
-        order.paymentReference = ref;
-        order.updatedAt = new Date();
-        await order.save();
-        sendPaymentEmail(order, ref);
+        // optionally verify amount from webhook payload too
+        const amt = event.data.amount;
+        const expected = Math.round(order.total * 100);
+        if (amt === expected) {
+          order.status = 'paid';
+          order.paymentReference = ref;
+          order.updatedAt = new Date();
+          await order.save();
+          sendPaymentEmail(order, ref);
+        } else {
+          console.warn('Webhook amount mismatch for', ref, amt, 'expected', expected);
+        }
       }
     }
 
@@ -743,7 +753,12 @@ app.get('/payment/callback', async (req, res) => {
     const order = await Order.findOne({ orderId: ref });
 
     if (order && tx) {
-      if (tx.status === 'success') {
+      // verify that the amount returned by Paystack matches our expected total
+      const expected = Math.round(order.total * 100);
+      if (tx.amount !== expected) {
+        console.warn('Paystack amount mismatch for', orderId, tx.amount, 'expected', expected);
+        // don't mark paid, leave order pending and maybe investigate
+      } else if (tx.status === 'success') {
         order.status = 'paid';
         order.paymentReference = tx.reference;
         order.updatedAt = new Date();

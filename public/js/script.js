@@ -482,16 +482,16 @@ function payNow() {
   }
 
   const orderId = lastOrder.orderId;
-  const amount = lastOrder.total;
   const email = lastOrder.email || '';
 
   el.payNowBtn.disabled = true;
   el.payNowBtn.textContent = 'Redirecting…';
 
+  // amount is not sent; server will look up the correct value itself
   fetch(`${API_BASE}/api/payment/initialize`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ orderId, email, amount }),
+    body: JSON.stringify({ orderId, email }),
   })
     .then((r) => {
       if (!r.ok) {
