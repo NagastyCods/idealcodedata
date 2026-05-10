@@ -408,6 +408,28 @@ function isValidPhone(phone) {
 }
 
 /**
+ * Get carrier from Ghana phone number prefix
+ */
+function getCarrierFromPhone(phone) {
+  const clean = String(phone).replace(/\s/g, '');
+  if (!/^0\d{9}$/.test(clean)) return null;
+  
+  const prefix = clean.substring(0, 3);
+  if (['024','025','053', '054', '055', '059'].includes(prefix)) return 'MTN';
+  if (['027', '057', '026', '056'].includes(prefix)) return 'AirtelTigo';
+  if (['023', '050','020'].includes(prefix)) return 'Telecel';
+  return null;
+}
+
+/**
+ * Check if phone number is valid for a specific carrier
+ */
+function isValidPhoneForCarrier(phone, carrier) {
+  const phoneCarrier = getCarrierFromPhone(phone);
+  return phoneCarrier === carrier;
+}
+
+/**
  * Place order
  */
 function placeOrder(e) {
@@ -423,8 +445,19 @@ function placeOrder(e) {
   }
 
   if (!isValidPhone(phone)) {
-    showToast('Please enter a valid Ghana phone number (0XXXXXXXXX)', true);
+    showToast('Please enter a valid Ghana phone number (0XXXXXXX)', true);
     return;
+  }
+
+  // Validate phone number matches the carriers in cart
+  for (const item of state.cart) {
+    const bundle = state.bundlesById[item.id];
+    if (bundle && bundle.carrier) {
+      if (!isValidPhoneForCarrier(phone, bundle.carrier)) {
+        showToast(`Invalid phone number for ${bundle.carrier} network. Please use a ${bundle.carrier} number.`, true);
+        return;
+      }
+    }
   }
 
   const items = state.cart.map((c) => ({ id: c.id, quantity: c.quantity || 1 }));

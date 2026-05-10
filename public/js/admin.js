@@ -218,10 +218,17 @@
               </div>
             </div>
             <div class="admin-order-body">
-              <div class="admin-order-items">
-                ${(o.items || [])
-                  .map((i) => `${escapeHtml(i.name || 'Unknown')} × ${i.quantity || 1}`)
-                  .join(' · ')}
+              <div class="admin-order-info">
+                <div class="admin-order-carriers">
+                  Carrier(s): ${escapeHtml(
+                    [...new Set((o.items || []).map((i) => i.carrier).filter(Boolean))].join(', ') || 'Unknown'
+                  )}
+                </div>
+                <div class="admin-order-items">
+                  ${(o.items || [])
+                    .map((i) => `${escapeHtml(i.name || 'Unknown')} (${escapeHtml(i.carrier || 'Unknown')}) × ${i.quantity || 1}`)
+                    .join(' · ')}
+                </div>
               </div>
               <div class="admin-order-total">Total: GHS ${(o.total || 0).toFixed(2)}</div>
             </div>

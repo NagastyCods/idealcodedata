@@ -95,9 +95,14 @@
               <span class="order-status ${statusClass}">${statusText}</span>
             </div>
             <div class="order-card-body">
+              <div class="order-carriers">
+                Carrier(s): ${escapeHtml(
+                  [...new Set((o.items || []).map((i) => i.carrier).filter(Boolean))].join(', ') || 'Unknown'
+                )}
+              </div>
               <div class="order-items">
                 ${(o.items || [])
-                  .map((i) => `${escapeHtml(i.name || 'Unknown')} × ${i.quantity || 1}`)
+                  .map((i) => `${escapeHtml(i.name || 'Unknown')} (${escapeHtml(i.carrier || 'Unknown')}) × ${i.quantity || 1}`)
                   .join(' · ')}
               </div>
               <div class="order-total">Total: GHS ${(o.total || 0).toFixed(2)}</div>

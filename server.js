@@ -180,6 +180,31 @@ function optionalToken(req, res, next) {
   next();
 }
 
+function cleanPhone(phone) {
+  return String(phone || '').replace(/\s/g, '');
+}
+
+function isValidPhone(phone) {
+  const clean = cleanPhone(phone);
+  return /^0\d{9}$/.test(clean);
+}
+
+function getCarrierFromPhone(phone) {
+  const clean = cleanPhone(phone);
+  if (!/^0\d{9}$/.test(clean)) return null;
+  const prefix = clean.substring(0, 3);
+
+  if (['024','025','053', '054', '055', '059'].includes(prefix)) return 'MTN';
+  if (['027', '057', '026', '056'].includes(prefix)) return 'AirtelTigo';
+  if (['023', '050','020'].includes(prefix)) return 'Telecel';
+
+  return null;
+}
+
+function isValidPhoneForCarrier(phone, carrier) {
+  return getCarrierFromPhone(phone) === carrier;
+}
+
 // Admin Token Verification
 function verifyAdminToken(req, res, next) {
   const auth = req.headers.authorization;
@@ -224,8 +249,10 @@ function sendOrderEmail(order) {
   if (!transport) return;
 
   const itemsText = (order.items || [])
-    .map((i) => `• ${i.name} × ${i.quantity || 1} — GHS ${((i.price || 0) * (i.quantity || 1)).toFixed(2)}`)
+    .map((i) => `• ${i.name} (${i.carrier || 'Unknown'}) × ${i.quantity || 1} — GHS ${((i.price || 0) * (i.quantity || 1)).toFixed(2)}`)
     .join('\n');
+
+  const carriers = [...new Set((order.items || []).map((i) => i.carrier).filter(Boolean))].join(', ') || 'Unknown';
 
   const html = `
     <h2>New Order: ${order.orderId}</h2>
@@ -233,6 +260,7 @@ function sendOrderEmail(order) {
     <p><strong>Customer:</strong> ${order.name || '—'}</p>
     <p><strong>Phone:</strong> ${order.phone || '—'}</p>
     <p><strong>Email:</strong> ${order.email || '—'}</p>
+    <p><strong>Carrier(s):</strong> ${carriers}</p>
     <p><strong>Items:</strong></p>
     <pre>${itemsText}</pre>
     <p><strong>Total:</strong> GHS ${(order.total || 0).toFixed(2)}</p>
@@ -252,8 +280,10 @@ function sendPaymentEmail(order, paymentId) {
   if (!transport) return;
 
   const itemsText = (order.items || [])
-    .map((i) => `• ${i.name} × ${i.quantity || 1} — GHS ${((i.price || 0) * (i.quantity || 1)).toFixed(2)}`)
+    .map((i) => `• ${i.name} (${i.carrier || 'Unknown'}) × ${i.quantity || 1} — GHS ${((i.price || 0) * (i.quantity || 1)).toFixed(2)}`)
     .join('\n');
+
+  const carriers = [...new Set((order.items || []).map((i) => i.carrier).filter(Boolean))].join(', ') || 'Unknown';
 
   const adminHtml = `
     <h2>💰 Payment Received</h2>
@@ -262,6 +292,7 @@ function sendPaymentEmail(order, paymentId) {
     <p><strong>Customer:</strong> ${order.name}</p>
     <p><strong>Phone:</strong> ${order.phone}</p>
     <p><strong>Email:</strong> ${order.email}</p>
+    <p><strong>Carrier(s):</strong> ${carriers}</p>
     <pre>${itemsText}</pre>
     <p><strong>Total:</strong> GHS ${order.total.toFixed(2)}</p>
   `;
@@ -272,6 +303,7 @@ function sendPaymentEmail(order, paymentId) {
     <p>Your payment was successful.</p>
     <p><strong>Order ID:</strong> ${order.orderId}</p>
     <p><strong>Payment Reference:</strong> ${paymentId}</p>
+    <p><strong>Carrier(s):</strong> ${carriers}</p>
     <pre>${itemsText}</pre>
     <p><strong>Total Paid:</strong> GHS ${order.total.toFixed(2)}</p>
     <p>Your data will be delivered shortly. Thank you for choosing IdealDataHub.</p>
@@ -432,9 +464,14 @@ app.post('/api/order', optionalToken, async (req, res) => {
     return res.status(400).json({ error: 'Cart is empty' });
   }
 
-  const phoneClean = (phone || '').replace(/\s/g, '');
-  if (!phoneClean || !/^0\d{9}$/.test(phoneClean)) {
+  const phoneClean = cleanPhone(phone);
+  if (!phoneClean || !isValidPhone(phoneClean)) {
     return res.status(400).json({ error: 'Valid Ghana phone number (0XXXXXXXXX) required' });
+  }
+
+  const phoneCarrier = getCarrierFromPhone(phoneClean);
+  if (!phoneCarrier) {
+    return res.status(400).json({ error: 'Invalid Ghana phone number prefix' });
   }
 
   try {
@@ -454,6 +491,13 @@ app.post('/api/order', optionalToken, async (req, res) => {
 
     if (orderItems.length === 0) {
       return res.status(400).json({ error: 'No valid bundles in cart' });
+    }
+
+    const cartCarriers = [...new Set(orderItems.map((item) => item.carrier).filter(Boolean))];
+    for (const carrier of cartCarriers) {
+      if (!isValidPhoneForCarrier(phoneClean, carrier)) {
+        return res.status(400).json({ error: `Invalid phone number for ${carrier} network. Please use a ${carrier} number.` });
+      }
     }
 
     const orderId = 'ORD-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8).toUpperCase();
