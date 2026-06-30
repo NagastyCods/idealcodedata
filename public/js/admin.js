@@ -9,6 +9,8 @@
   const loginError = document.getElementById('loginError');
   const logoutBtn = document.getElementById('logoutBtn');
   const adminOrdersList = document.getElementById('adminOrdersList');
+  const orderSearch = document.getElementById('orderSearch');
+  let searchTimer = null;
 
   /**
    * Get stored admin token from localStorage
@@ -99,7 +101,13 @@
 
     adminOrdersList.innerHTML = '<p style="color: var(--text-muted); text-align: center;">Loading orders...</p>';
 
-    fetch(API_BASE + '/api/orders', {
+    let url = API_BASE + '/api/orders';
+    const query = orderSearch?.value.trim();
+    if (query) {
+      url += '?q=' + encodeURIComponent(query);
+    }
+
+    fetch(url, {
       headers: authHeaders(),
     })
       .then((r) => {
@@ -306,6 +314,13 @@
   /**
    * Handle logout
    */
+  orderSearch?.addEventListener('input', function () {
+    if (searchTimer) {
+      clearTimeout(searchTimer);
+    }
+    searchTimer = setTimeout(fetchOrders, 250);
+  });
+
   logoutBtn?.addEventListener('click', function () {
     setToken(null);
     showLogin();

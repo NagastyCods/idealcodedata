@@ -95,14 +95,131 @@
   font-size: 0.9rem;
 }
 
-.account-orders .orders-list {
-  margin: 0;
+.account-wallet-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
 }
 
-.account-orders .orders-empty {
-  padding: 2rem 1rem;
-  text-align: center;
+.wallet-sub {
+  margin: 0;
+  color: var(--text-muted);
 }
+
+.wallet-balance {
+  font-size: 1rem;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.wallet-note {
+  margin: 0 0 1rem;
+  color: var(--text-muted);
+}
+
+.wallet-topup-form {
+  display: grid;
+  gap: 0.75rem;
+  max-width: 380px;
+  margin-bottom: 1.5rem;
+}
+
+.wallet-topup-form label {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.wallet-topup-form input {
+  width: 100%;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.wallet-message {
+  padding: 0.85rem 1rem;
+  border-radius: var(--radius);
+  font-size: 0.95rem;
+}
+
+.wallet-message.hidden {
+  display: none !important;
+}
+
+.wallet-message.success {
+  background: rgba(40, 167, 69, 0.12);
+  color: var(--success);
+  border: 1px solid rgba(40, 167, 69, 0.2);
+}
+
+.wallet-message.error {
+  background: rgba(220, 53, 69, 0.12);
+  color: var(--danger);
+  border: 1px solid rgba(220, 53, 69, 0.2);
+}
+
+.wallet-history-section h3 {
+  margin: 0 0 1rem;
+  font-size: 1rem;
+}
+
+.wallet-history {
+  display: grid;
+  gap: 1rem;
+}
+
+.wallet-history-empty {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.wallet-item {
+  border: 1px solid var(--border);
+  padding: 1rem;
+  border-radius: var(--radius);
+  display: grid;
+  gap: 0.75rem;
+}
+
+.wallet-item-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.wallet-item-body {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.wallet-item-status {
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.wallet-item-status.pending_payment,
+.wallet-item-status.pending {
+  color: var(--accent);
+}
+
+.wallet-item-status.paid,
+.wallet-item-status.completed {
+  color: green;
+}
+
+.wallet-item-status.failed {
+  color: red;
+}
+
 
 .account-orders .orders-empty .btn {
   margin-top: 1rem;

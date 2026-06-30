@@ -2,6 +2,7 @@
   const API_BASE = '';
   const AUTH_TOKEN_KEY = 'idealdata_token';
   const AUTH_USER_KEY = 'idealdata_user';
+  const AUTH_EXPIRY_KEY = 'idealdata_expires_at';
 
   const loginForm = document.getElementById('loginForm');
   const signupForm = document.getElementById('signupForm');
@@ -9,6 +10,8 @@
   const signupPanel = document.getElementById('signupPanel');
   const loginBtn = document.getElementById('loginBtn');
   const signupBtn = document.getElementById('signupBtn');
+  const forgotForm = document.getElementById('forgotForm');
+  const forgotEmail = document.getElementById('forgotEmail');
   const toast = document.getElementById('toast');
   const tabs = document.querySelectorAll('.auth-tab');
 
@@ -37,9 +40,18 @@
   /**
    * Save authentication token and user data to localStorage
    */
-  function saveAuth(token, user) {
+  function saveAuth(token, user, expiresAt) {
     localStorage.setItem(AUTH_TOKEN_KEY, token);
     localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+    if (expiresAt) {
+      localStorage.setItem(AUTH_EXPIRY_KEY, expiresAt);
+    }
+  }
+
+  function clearAuth() {
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    localStorage.removeItem(AUTH_USER_KEY);
+    localStorage.removeItem(AUTH_EXPIRY_KEY);
   }
 
   /**
@@ -55,6 +67,10 @@
   function isValidPhone(phone) {
     const clean = String(phone).replace(/\s/g, '');
     return /^0\d{9}$/.test(clean);
+  }
+
+  function isStrongPassword(password) {
+    return typeof password === 'string' && password.length >= 8 && /[A-Z]/.test(password) && /[a-z]/.test(password) && /\d/.test(password);
   }
 
   /**
@@ -118,7 +134,7 @@
       })
       .then((data) => {
         if (data.token && data.user) {
-          saveAuth(data.token, data.user);
+          saveAuth(data.token, data.user, data.expiresAt);
           showToast('Welcome back, ' + (data.user.name || 'user') + '!');
           setTimeout(() => redirectAfterAuth(), 1000);
         } else {
@@ -157,8 +173,8 @@
       return;
     }
 
-    if (password.length < 6) {
-      showToast('Password must be at least 6 characters', true);
+    if (!isStrongPassword(password)) {
+      showToast('Password must be at least 8 characters and include uppercase, lowercase, and a number', true);
       return;
     }
 
@@ -190,7 +206,7 @@
       })
       .then((data) => {
         if (data.token && data.user) {
-          saveAuth(data.token, data.user);
+          saveAuth(data.token, data.user, data.expiresAt);
           showToast('Account created! Welcome, ' + data.user.name + '.');
           setTimeout(() => redirectAfterAuth(), 1000);
         } else {
@@ -207,12 +223,46 @@
       });
   });
 
+  forgotForm?.addEventListener('submit', function (e) {
+    e.preventDefault();
+    const email = forgotEmail?.value.trim().toLowerCase() || '';
+
+    if (!isValidEmail(email)) {
+      showToast('Please enter a valid email address', true);
+      return;
+    }
+
+    fetch(API_BASE + '/api/auth/forgot-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    })
+      .then(async (r) => {
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          throw new Error(data.error || 'Could not send reset instructions');
+        }
+        return data;
+      })
+      .then((data) => {
+        showToast(data.message || 'If an account exists, reset instructions have been sent.', false);
+      })
+      .catch((err) => showToast(err.message || 'Could not process your request right now.', true));
+  });
+
   /**
    * Initialize page
    */
   function init() {
     const params = new URLSearchParams(window.location.search);
     if (params.get('tab') === 'signup') setTab('signup');
+
+    if (localStorage.getItem(AUTH_TOKEN_KEY) && localStorage.getItem(AUTH_EXPIRY_KEY)) {
+      const expiry = Number(new Date(localStorage.getItem(AUTH_EXPIRY_KEY)).getTime());
+      if (!Number.isNaN(expiry) && expiry <= Date.now()) {
+        clearAuth();
+      }
+    }
 
     // Redirect if already logged in
     if (localStorage.getItem(AUTH_TOKEN_KEY)) {

@@ -59,6 +59,30 @@
           </div>
         </section>
 
+        <section class="account-section account-wallet">
+          <div class="account-wallet-header">
+            <div>
+              <h2>Wallet</h2>
+              <p class="wallet-sub">Deposit now and pay from your wallet for future orders.</p>
+            </div>
+            <div class="wallet-balance">Balance: <strong id="walletBalance">GHS 0.00</strong></div>
+          </div>
+
+          <p class="wallet-note">Top up using Paystack with card, bank transfer, or Mobile Money. For direct MoMo deposits to your number, we recommend using Paystack for automatic reconciliation.</p>
+
+          <form id="walletTopupForm" class="wallet-topup-form">
+            <label for="walletAmount">Top-up amount (GHS)</label>
+            <input id="walletAmount" name="amount" type="number" min="1" step="1" value="10" required />
+            <button type="submit" class="btn btn-primary">Top up wallet</button>
+            <div id="walletTopupMessage" class="wallet-message hidden"></div>
+          </form>
+
+          <div class="wallet-history-section">
+            <h3>Top-up history</h3>
+            <div id="walletTopupHistory" class="wallet-history"></div>
+          </div>
+        </section>
+
         <section class="account-section account-orders">
           <div class="account-orders-header">
             <h2>Order history</h2>

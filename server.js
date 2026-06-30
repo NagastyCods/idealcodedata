@@ -24,10 +24,51 @@ const ADMIN_PASSWORD_HASH = (process.env.ADMIN_PASSWORD_HASH || '').trim();
 const JWT_SECRET = (process.env.JWT_SECRET || '').trim();
 const PAYSTACK_SECRET = (process.env.PAYSTACK_SECRET_KEY || '').trim();
 const GMAIL_USER = (process.env.GMAIL_USER || '').trim();
-const GMAIL_APP_PASSWORD = (process.env.GMAIL_APP_PASSWORD || '').trim();
+const GMAIL_APP_PASSWORD = (process.env.GMAIL_APP_PASSWORD || '').replace(/\s+/g, '').trim();
 
 const fetch = global.fetch;
 
+const MAINTENANCE_NOTICE = 'MTN orders are temporarily unavailable because the MTN server is under maintenance. You can place orders for AirtelTigo and Telecel only.';
+const BLOCKED_CARRIERS = new Set(['MTN']);
+const SESSION_TTL_MS = 1000 * 60 * 60;
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOGIN_LOCK_WINDOW_MS = 1000 * 60 * 15;
+const PASSWORD_RESET_TTL_MS = 1000 * 60 * 60;
+const AUTH_RATE_LIMITS = new Map();
+
+function isCarrierBlocked(carrier) {
+  return BLOCKED_CARRIERS.has(String(carrier || '').trim());
+}
+
+function isStrongPassword(password) {
+  return typeof password === 'string' && password.length >= 8 && /[A-Z]/.test(password) && /[a-z]/.test(password) && /\d/.test(password);
+}
+
+function getClientIp(req) {
+  return String(req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.ip || 'unknown').split(',')[0].trim();
+}
+
+function enforceRateLimit(key, limit, windowMs) {
+  const now = Date.now();
+  const existing = AUTH_RATE_LIMITS.get(key);
+
+  if (!existing) {
+    AUTH_RATE_LIMITS.set(key, { count: 1, resetAt: now + windowMs });
+    return { allowed: true };
+  }
+
+  if (existing.resetAt <= now) {
+    AUTH_RATE_LIMITS.set(key, { count: 1, resetAt: now + windowMs });
+    return { allowed: true };
+  }
+
+  if (existing.count >= limit) {
+    return { allowed: false, retryAfterMs: existing.resetAt - now };
+  }
+
+  existing.count += 1;
+  return { allowed: true };
+}
 
 // MongoDB Schemas
 const userSchema = new mongoose.Schema({
@@ -36,6 +77,14 @@ const userSchema = new mongoose.Schema({
   passwordHash: { type: String, required: true },
   name: String,
   phone: { type: String, unique: true, required: true },
+  walletBalance: { type: Number, default: 0 },
+  walletCurrency: { type: String, default: 'GHS' },
+  lastLoginAt: Date,
+  loginAttempts: { type: Number, default: 0 },
+  lockUntil: Date,
+  passwordResetToken: String,
+  passwordResetExpiresAt: Date,
+  sessionExpiresAt: Date,
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
 });
@@ -77,9 +126,38 @@ const bundleSchema = new mongoose.Schema({
   price: Number,
 });
 
+const topupSchema = new mongoose.Schema({
+  topupId: { type: String, unique: true, required: true },
+  userId: { type: String, required: true },
+  amount: { type: Number, required: true },
+  currency: { type: String, default: 'GHS' },
+  status: {
+    type: String,
+    enum: ['pending_payment', 'pending', 'paid', 'completed', 'failed'],
+    default: 'pending_payment'
+  },
+  paymentReference: String,
+  provider: { type: String, enum: ['paystack', 'manual'], default: 'paystack' },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now },
+});
+
+const walletTxSchema = new mongoose.Schema({
+  txId: { type: String, unique: true, required: true },
+  userId: { type: String, required: true },
+  amount: { type: Number, required: true },
+  currency: { type: String, default: 'GHS' },
+  type: { type: String, enum: ['credit', 'debit'], required: true },
+  reference: String,
+  meta: mongoose.Schema.Types.Mixed,
+  createdAt: { type: Date, default: Date.now },
+});
+
 const User = mongoose.models.User || mongoose.model('User', userSchema);
 const Order = mongoose.models.Order || mongoose.model('Order', orderSchema);
 const Bundle = mongoose.models.Bundle || mongoose.model('Bundle', bundleSchema);
+const Topup = mongoose.models.Topup || mongoose.model('Topup', topupSchema);
+const WalletTx = mongoose.models.WalletTx || mongoose.model('WalletTx', walletTxSchema);
 
 // Middleware - Connect to DB on first request and import bundles if empty
 app.use(async (req, res, next) => {
@@ -132,8 +210,8 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 
 // JWT Token Generation
-function generateJWT(userId) {
-  return jwt.sign({ userId }, JWT_SECRET, { expiresIn: '7d' });
+function generateJWT(userId, expiresIn = '1h') {
+  return jwt.sign({ userId }, JWT_SECRET, { expiresIn });
 }
 
 // DEBUG: Check admin hash on Vercel
@@ -147,7 +225,7 @@ app.get('/api/admin/debug', (req, res) => {
 });
 
 // JWT Verification Middleware
-function verifyToken(req, res, next) {
+async function verifyToken(req, res, next) {
   const auth = req.headers.authorization;
   const token = auth && auth.startsWith('Bearer ') ? auth.slice(7) : null;
 
@@ -157,6 +235,16 @@ function verifyToken(req, res, next) {
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
+    const user = await User.findOne({ id: decoded.userId });
+
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    if (user.sessionExpiresAt && new Date(user.sessionExpiresAt) < new Date()) {
+      return res.status(401).json({ error: 'Session expired. Please sign in again.' });
+    }
+
     req.userId = decoded.userId;
     next();
   } catch (err) {
@@ -228,19 +316,31 @@ function verifyAdminToken(req, res, next) {
 
 // Mailer Setup
 function getMailer() {
-  if (!GMAIL_USER || !GMAIL_APP_PASSWORD) return null;
-  return nodemailer.createTransport({
+  if (!GMAIL_USER || !GMAIL_APP_PASSWORD) {
+    console.error('Mailer configuration missing: GMAIL_USER or GMAIL_APP_PASSWORD is not set');
+    return null;
+  }
+
+  if (GMAIL_APP_PASSWORD.length !== 16) {
+    console.warn('Mailer configuration warning: GMAIL_APP_PASSWORD should be 16 characters after normalization. Current length:', GMAIL_APP_PASSWORD.length);
+  }
+
+  const transport = nodemailer.createTransport({
     service: 'gmail',
     auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
   });
+
+  return transport;
 }
 
 async function safeSendMail(transport, options) {
   try {
     await transport.sendMail(options);
     console.log('✅ Email sent:', options.subject);
+    return true;
   } catch (err) {
-    console.error('❌ Email failed:', err.message);
+    console.error('❌ Email failed:', err?.message || err);
+    return false;
   }
 }
 
@@ -326,15 +426,85 @@ function sendPaymentEmail(order, paymentId) {
   }
 }
 
+function sendTopupEmail(user, topup) {
+  const transport = getMailer();
+  if (!transport) return;
+
+  const html = `
+    <h2>Wallet Top-up Successful</h2>
+    <p>Hello ${user.name || 'Customer'},</p>
+    <p>Your wallet has been credited with <strong>GHS ${topup.amount.toFixed(2)}</strong>.</p>
+    <p><strong>Top-up ID:</strong> ${topup.topupId}</p>
+    <p><strong>Payment Reference:</strong> ${topup.paymentReference || 'N/A'}</p>
+    <p>Your new balance is <strong>GHS ${user.walletBalance.toFixed(2)}</strong>.</p>
+    <p>Thank you for using IdealDataHub.</p>
+  `;
+
+  safeSendMail(transport, {
+    from: GMAIL_USER,
+    to: user.email || GMAIL_USER,
+    subject: `[IdealDataHub] Wallet Top-up — ${topup.topupId}`,
+    html,
+  });
+}
+
+async function creditUserWallet(userId, amount, options = {}) {
+  const user = await User.findOne({ id: userId });
+  if (!user) return null;
+
+  const creditAmount = Math.round((amount || 0) * 100) / 100;
+  user.walletBalance = Math.round(((user.walletBalance || 0) + creditAmount) * 100) / 100;
+  user.updatedAt = new Date();
+  await user.save();
+
+  // record wallet transaction (credit)
+  try {
+    const tx = new WalletTx({
+      txId: 'WAL-C-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8).toUpperCase(),
+      userId: user.id,
+      amount: creditAmount,
+      type: 'credit',
+      reference: options.paymentReference || options.topupId || null,
+      meta: options.meta || null,
+    });
+    await tx.save();
+  } catch (err) {
+    console.error('Failed to record wallet credit tx', err);
+  }
+
+  if (options.topupId) {
+    await Topup.findOneAndUpdate(
+      { topupId: options.topupId },
+      {
+        $set: {
+          status: 'completed',
+          paymentReference: options.paymentReference || options.paymentReference,
+          updatedAt: new Date(),
+        },
+      }
+    );
+  }
+
+  return user;
+}
+
 // Routes
 
 // GET Bundles
 app.get('/api/bundles', async (req, res) => {
   try {
-    let query = {};
+    const query = {};
     const { carrier, validity } = req.query;
 
-    if (carrier) query.carrier = carrier;
+    if (carrier) {
+      if (carrier === 'MTN') {
+        return res.json([]);
+      }
+      query.carrier = carrier;
+    } else {
+      query.carrier = { $ne: 'MTN' };
+    }
+
     if (validity) query.validity = new RegExp(validity, 'i');
 
     const bundles = await Bundle.find(query);
@@ -346,7 +516,7 @@ app.get('/api/bundles', async (req, res) => {
 
 // GET Carriers
 app.get('/api/carriers', (_req, res) => {
-  res.json(['MTN', 'AirtelTigo', 'Telecel']);
+  res.json(['AirtelTigo', 'Telecel']);
 });
 
 // POST Sign Up
@@ -362,13 +532,19 @@ app.post('/api/auth/signup', async (req, res) => {
     return res.status(400).json({ error: 'Invalid email address' });
   }
 
-  if (String(password).length < 6) {
-    return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  if (!isStrongPassword(password)) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters and include uppercase, lowercase, and a number' });
   }
 
   const phoneClean = String(phone).replace(/\s/g, '');
   if (!/^0\d{9}$/.test(phoneClean)) {
     return res.status(400).json({ error: 'Valid Ghana phone number (0XXXXXXXXX) required' });
+  }
+
+  const ipKey = `signup:${getClientIp(req)}:${emailClean}`;
+  const rateLimit = enforceRateLimit(ipKey, 5, 1000 * 60 * 15);
+  if (!rateLimit.allowed) {
+    return res.status(429).json({ error: 'Too many signup attempts. Please try again later.' });
   }
 
   try {
@@ -384,6 +560,7 @@ app.post('/api/auth/signup', async (req, res) => {
 
     const passwordHash = await bcrypt.hash(password, 10);
     const userId = 'usr_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
+    const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
 
     const user = new User({
       id: userId,
@@ -391,6 +568,7 @@ app.post('/api/auth/signup', async (req, res) => {
       passwordHash,
       name: String(name).trim(),
       phone: phoneClean,
+      sessionExpiresAt: expiresAt,
     });
 
     await user.save();
@@ -399,6 +577,7 @@ app.post('/api/auth/signup', async (req, res) => {
 
     res.status(201).json({
       token,
+      expiresAt: expiresAt.toISOString(),
       user: { id: user.id, email: user.email, name: user.name, phone: user.phone },
     });
   } catch (err) {
@@ -416,6 +595,11 @@ app.post('/api/auth/login', async (req, res) => {
   }
 
   const emailClean = String(email).trim().toLowerCase();
+  const ipKey = `login:${getClientIp(req)}:${emailClean}`;
+  const rateLimit = enforceRateLimit(ipKey, 8, 1000 * 60 * 15);
+  if (!rateLimit.allowed) {
+    return res.status(429).json({ error: 'Too many login attempts. Please try again later.' });
+  }
 
   try {
     const user = await User.findOne({ email: emailClean });
@@ -424,20 +608,139 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
+    if (user.lockUntil && user.lockUntil > new Date()) {
+      return res.status(423).json({ error: 'Account temporarily locked due to too many failed attempts. Please try again later.' });
+    }
+
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
     if (!isPasswordValid) {
+      user.loginAttempts = (user.loginAttempts || 0) + 1;
+      if (user.loginAttempts >= MAX_LOGIN_ATTEMPTS) {
+        user.lockUntil = new Date(Date.now() + LOGIN_LOCK_WINDOW_MS);
+      }
+      user.updatedAt = new Date();
+      await user.save();
       return res.status(401).json({ error: 'Invalid email or password' });
     }
+
+    user.loginAttempts = 0;
+    user.lockUntil = null;
+    user.lastLoginAt = new Date();
+    user.sessionExpiresAt = new Date(Date.now() + SESSION_TTL_MS);
+    user.updatedAt = new Date();
+    await user.save();
 
     const token = generateJWT(user.id);
 
     res.json({
       token,
+      expiresAt: user.sessionExpiresAt.toISOString(),
       user: { id: user.id, email: user.email, name: user.name, phone: user.phone },
     });
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+// POST Forgot Password
+app.post('/api/auth/forgot-password', async (req, res) => {
+  const { email } = req.body || {};
+  console.log('Forgot password request received:', { email });
+  if (!email) {
+    return res.status(400).json({ error: 'Email is required' });
+  }
+
+  const emailClean = String(email).trim().toLowerCase();
+  const ipKey = `forgot:${getClientIp(req)}:${emailClean}`;
+  const rateLimit = enforceRateLimit(ipKey, 3, 1000 * 60 * 15);
+  if (!rateLimit.allowed) {
+    console.log('Forgot password rate limit reached for:', emailClean);
+    return res.status(429).json({ error: 'Too many password reset requests. Please try again later.' });
+  }
+
+  try {
+    const user = await User.findOne({ email: emailClean });
+    if (!user) {
+      return res.json({ success: true, message: 'If an account exists for that email, a reset link has been sent.' });
+    }
+
+    const token = crypto.randomBytes(32).toString('hex');
+    user.passwordResetToken = token;
+    user.passwordResetExpiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_MS);
+    user.updatedAt = new Date();
+    await user.save();
+
+    const resetUrl = `${req.protocol}://${req.get('host')}/pages/reset-password.html?token=${token}`;
+    const transport = getMailer();
+    if (!transport) {
+      console.error('Forgot password error: missing mailer configuration');
+      return res.status(500).json({ error: 'Email service is not configured. Please contact support.' });
+    }
+
+    try {
+      await transport.verify();
+      console.log('Mailer verified successfully');
+    } catch (verifyErr) {
+      console.error('Forgot password error: mail transport verification failed:', verifyErr?.message || verifyErr);
+      return res.status(500).json({ error: 'Email service is unavailable. Please try again later.' });
+    }
+
+    const sent = await safeSendMail(transport, {
+      from: GMAIL_USER,
+      to: user.email,
+      subject: '[IdealDataHub] Password Reset',
+      html: `<p>Hello ${user.name || 'there'},</p><p>Use the link below to reset your password:</p><p><a href="${resetUrl}">${resetUrl}</a></p><p>This link expires in 1 hour.</p>`,
+    });
+
+    if (!sent) {
+      user.passwordResetToken = null;
+      user.passwordResetExpiresAt = null;
+      user.updatedAt = new Date();
+      await user.save();
+      console.error('Password reset email failed for user:', user.email);
+      return res.status(500).json({ error: 'Failed to send password reset email. Please try again later.' });
+    }
+
+    console.log(`Password reset email queued for ${user.email}`);
+    console.log(`Reset URL: ${resetUrl}`);
+    res.json({ success: true, message: 'If an account exists for that email, a reset link has been sent.', resetUrl });
+  } catch (err) {
+    console.error('Forgot password error:', err);
+    res.status(500).json({ error: 'Failed to send password reset instructions' });
+  }
+});
+
+// POST Reset Password
+app.post('/api/auth/reset-password', async (req, res) => {
+  const { token, password } = req.body || {};
+  if (!token || !password) {
+    return res.status(400).json({ error: 'Reset token and new password are required' });
+  }
+
+  if (!isStrongPassword(password)) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters and include uppercase, lowercase, and a number' });
+  }
+
+  try {
+    const user = await User.findOne({ passwordResetToken: token });
+    if (!user || !user.passwordResetExpiresAt || new Date() > user.passwordResetExpiresAt) {
+      return res.status(400).json({ error: 'Reset link is invalid or has expired' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    user.passwordHash = passwordHash;
+    user.passwordResetToken = null;
+    user.passwordResetExpiresAt = null;
+    user.loginAttempts = 0;
+    user.lockUntil = null;
+    user.updatedAt = new Date();
+    await user.save();
+
+    res.json({ success: true, message: 'Password reset successfully. Please sign in with your new password.' });
+  } catch (err) {
+    console.error('Reset password error:', err);
+    res.status(500).json({ error: 'Failed to reset password' });
   }
 });
 
@@ -457,7 +760,7 @@ app.get('/api/auth/me', verifyToken, async (req, res) => {
 });
 
 // POST Create Order
-app.post('/api/order', optionalToken, async (req, res) => {
+app.post('/api/order', verifyToken, async (req, res) => {
   const { items, phone, email, name } = req.body;
 
   if (!items || !Array.isArray(items) || items.length === 0) {
@@ -472,6 +775,10 @@ app.post('/api/order', optionalToken, async (req, res) => {
   const phoneCarrier = getCarrierFromPhone(phoneClean);
   if (!phoneCarrier) {
     return res.status(400).json({ error: 'Invalid Ghana phone number prefix' });
+  }
+
+  if (phoneCarrier === 'MTN') {
+    return res.status(403).json({ error: MAINTENANCE_NOTICE });
   }
 
   try {
@@ -495,6 +802,9 @@ app.post('/api/order', optionalToken, async (req, res) => {
 
     const cartCarriers = [...new Set(orderItems.map((item) => item.carrier).filter(Boolean))];
     for (const carrier of cartCarriers) {
+      if (isCarrierBlocked(carrier)) {
+        return res.status(403).json({ error: MAINTENANCE_NOTICE });
+      }
       if (!isValidPhoneForCarrier(phoneClean, carrier)) {
         return res.status(400).json({ error: `Invalid phone number for ${carrier} network. Please use a ${carrier} number.` });
       }
@@ -545,7 +855,19 @@ app.get('/api/orders', async (req, res) => {
 
   try {
     if (isAdmin) {
-      const orders = await Order.find().sort({ createdAt: -1 });
+      const queryFilter = {};
+      const q = String(req.query.q || '').trim();
+      if (q) {
+        const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(escaped, 'i');
+        queryFilter.$or = [
+          { orderId: regex },
+          { phone: regex },
+          { email: regex },
+          { name: regex },
+        ];
+      }
+      const orders = await Order.find(queryFilter).sort({ createdAt: -1 });
       return res.json(orders);
     }
 
@@ -577,6 +899,136 @@ app.get('/api/account/orders', verifyToken, async (req, res) => {
     res.json(orders);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch orders' });
+  }
+});
+
+// GET Wallet Data
+app.get('/api/account/wallet', verifyToken, async (req, res) => {
+  try {
+    const user = await User.findOne({ id: req.userId });
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    const topups = await Topup.find({ userId: req.userId }).sort({ createdAt: -1 });
+
+    res.json({
+      balance: user.walletBalance || 0,
+      currency: user.walletCurrency || 'GHS',
+      topups,
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch wallet data' });
+  }
+});
+
+// POST Create Wallet Top-up
+app.post('/api/wallet/topup', verifyToken, async (req, res) => {
+  const amount = Number(req.body.amount);
+
+  if (!amount || amount <= 0) {
+    return res.status(400).json({ error: 'Top-up amount must be greater than zero' });
+  }
+
+  if (!PAYSTACK_SECRET) {
+    return res.status(503).json({ error: 'Payment not configured. Set PAYSTACK_SECRET_KEY.' });
+  }
+
+  try {
+    const user = await User.findOne({ id: req.userId });
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    const topupId = 'TOPUP-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8).toUpperCase();
+    const topup = new Topup({
+      topupId,
+      userId: user.id,
+      amount: Math.round(amount * 100) / 100,
+      currency: 'GHS',
+      status: 'pending_payment',
+      provider: 'paystack',
+    });
+
+    await topup.save();
+
+    let baseUrl = req.headers.origin || req.headers.referer;
+    try {
+      baseUrl = baseUrl ? new URL(baseUrl).origin : null;
+    } catch (_) {
+      baseUrl = null;
+    }
+    if (!baseUrl) baseUrl = `http://localhost:${PORT}`;
+
+    const callbackUrl = `${baseUrl}/payment/callback`;
+    const payload = {
+      email: user.email || `customer-${user.phone}@idealdatahub.gh`,
+      amount: Math.round(amount * 100),
+      currency: 'GHS',
+      reference: topupId,
+      callback_url: callbackUrl,
+      channels: ['card', 'mobile_money', 'bank'],
+      metadata: { topupId, userId: user.id, type: 'wallet' },
+    };
+
+    const response = await fetch('https://api.paystack.co/transaction/initialize', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${PAYSTACK_SECRET}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await response.json();
+    if (!data.status) {
+      return res.status(400).json({ error: data.message || 'Paystack error' });
+    }
+
+    res.json({
+      authorization_url: data.data.authorization_url,
+      access_code: data.data.access_code,
+      topup: topup.toObject(),
+    });
+  } catch (err) {
+    console.error('Wallet topup error:', err);
+    res.status(502).json({ error: 'Payment service error' });
+  }
+});
+
+// POST Manual Wallet Credit (Admin only)
+app.post('/api/wallet/manual', verifyAdminToken, async (req, res) => {
+  const { userId, amount, note } = req.body;
+  const value = Number(amount);
+
+  if (!userId || !value || value <= 0) {
+    return res.status(400).json({ error: 'userId and amount are required for manual credit' });
+  }
+
+  try {
+    const user = await User.findOne({ id: userId });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const topupId = 'MANUAL-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8).toUpperCase();
+    const topup = new Topup({
+      topupId,
+      userId: user.id,
+      amount: Math.round(value * 100) / 100,
+      currency: 'GHS',
+      status: 'completed',
+      provider: 'manual',
+      paymentReference: note ? String(note).slice(0, 100) : null,
+    });
+
+    await topup.save();
+    await creditUserWallet(user.id, topup.amount, { topupId: topup.topupId, paymentReference: topup.paymentReference });
+
+    res.json({ success: true, topup: topup.toObject() });
+  } catch (err) {
+    console.error('Manual wallet credit error:', err);
+    res.status(500).json({ error: 'Failed to credit wallet' });
   }
 });
 
@@ -733,6 +1185,74 @@ app.post('/api/payment/initialize', async (req, res) => {
   }
 });
 
+// POST Pay order with wallet balance
+app.post('/api/payment/wallet', verifyToken, async (req, res) => {
+  const { orderId } = req.body || {};
+  if (!orderId) return res.status(400).json({ error: 'orderId required' });
+
+  try {
+    const user = await User.findOne({ id: req.userId });
+    if (!user) return res.status(401).json({ error: 'User not found' });
+
+    const order = await Order.findOne({ orderId });
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+
+    // only allow wallet payment if order belongs to user or phone matches
+    if (order.userId && order.userId !== user.id) {
+      return res.status(403).json({ error: 'Order does not belong to user' });
+    }
+
+    if (order.phone && user.phone && order.userId !== user.id && order.phone !== user.phone) {
+      return res.status(403).json({ error: 'Order phone does not match your account' });
+    }
+
+    if (order.status !== 'pending_payment') {
+      return res.status(400).json({ error: 'Order is not awaiting payment' });
+    }
+
+    const total = Number(order.total || 0);
+    if ((user.walletBalance || 0) < total) {
+      return res.status(402).json({ error: 'Insufficient wallet balance' });
+    }
+
+    // deduct balance
+    const debit = Math.round(total * 100) / 100;
+    user.walletBalance = Math.round(((user.walletBalance || 0) - debit) * 100) / 100;
+    user.updatedAt = new Date();
+    await user.save();
+
+    // record wallet debit tx
+    const txId = 'WAL-D-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8).toUpperCase();
+    try {
+      const tx = new WalletTx({
+        txId,
+        userId: user.id,
+        amount: debit,
+        type: 'debit',
+        reference: orderId,
+        meta: { orderId },
+      });
+      await tx.save();
+    } catch (err) {
+      console.error('Failed to record wallet debit tx', err);
+    }
+
+    // mark order as paid
+    order.status = 'paid';
+    order.paymentReference = txId;
+    order.updatedAt = new Date();
+    await order.save();
+
+    // notify
+    sendPaymentEmail(order, txId);
+
+    res.json({ success: true, order: order.toObject(), balance: user.walletBalance });
+  } catch (err) {
+    console.error('Wallet payment error:', err);
+    res.status(500).json({ error: 'Failed to process wallet payment' });
+  }
+});
+
 // Payment Webhook
 app.post('/payment/webhook', async (req, res) => {
   if (!PAYSTACK_SECRET) return res.sendStatus(200);
@@ -751,9 +1271,9 @@ app.post('/payment/webhook', async (req, res) => {
     if (event.event === 'charge.success') {
       const ref = event.data.reference;
       const order = await Order.findOne({ orderId: ref });
+      const topup = !order ? await Topup.findOne({ topupId: ref }) : null;
 
       if (order && order.status === 'pending_payment') {
-        // optionally verify amount from webhook payload too
         const amt = event.data.amount;
         const expected = Math.round(order.total * 100);
         if (amt === expected) {
@@ -764,6 +1284,23 @@ app.post('/payment/webhook', async (req, res) => {
           sendPaymentEmail(order, ref);
         } else {
           console.warn('Webhook amount mismatch for', ref, amt, 'expected', expected);
+        }
+      } else if (topup && topup.status === 'pending_payment') {
+        const amt = event.data.amount;
+        const expected = Math.round(topup.amount * 100);
+        if (amt === expected) {
+          topup.status = 'paid';
+          topup.paymentReference = ref;
+          topup.updatedAt = new Date();
+          await topup.save();
+
+          const user = await creditUserWallet(topup.userId, topup.amount, {
+            topupId: topup.topupId,
+            paymentReference: ref,
+          });
+          if (user) sendTopupEmail(user, topup);
+        } else {
+          console.warn('Webhook topup amount mismatch for', ref, amt, 'expected', expected);
         }
       }
     }
@@ -795,13 +1332,12 @@ app.get('/payment/callback', async (req, res) => {
     const tx = payload?.data;
 
     const order = await Order.findOne({ orderId: ref });
+    const topup = !order ? await Topup.findOne({ topupId: ref }) : null;
 
     if (order && tx) {
-      // verify that the amount returned by Paystack matches our expected total
       const expected = Math.round(order.total * 100);
       if (tx.amount !== expected) {
-        console.warn('Paystack amount mismatch for', orderId, tx.amount, 'expected', expected);
-        // don't mark paid, leave order pending and maybe investigate
+        console.warn('Paystack amount mismatch for', ref, tx.amount, 'expected', expected);
       } else if (tx.status === 'success') {
         order.status = 'paid';
         order.paymentReference = tx.reference;
@@ -817,14 +1353,51 @@ app.get('/payment/callback', async (req, res) => {
         order.updatedAt = new Date();
         await order.save();
       }
+    } else if (topup && tx) {
+      const expected = Math.round(topup.amount * 100);
+      if (tx.amount !== expected) {
+        console.warn('Paystack amount mismatch for', ref, tx.amount, 'expected', expected);
+      } else if (tx.status === 'success') {
+        if (topup.status !== 'completed') {
+          topup.status = 'completed';
+          topup.paymentReference = tx.reference;
+          topup.updatedAt = new Date();
+          await topup.save();
+          const user = await creditUserWallet(topup.userId, topup.amount, {
+            topupId: topup.topupId,
+            paymentReference: tx.reference,
+          });
+          if (user) sendTopupEmail(user, topup);
+        }
+      } else if (['pending', 'ongoing', 'processing'].includes(tx.status)) {
+        if (topup.status !== 'completed') {
+          topup.status = 'pending';
+          topup.updatedAt = new Date();
+          await topup.save();
+        }
+      } else {
+        topup.status = 'failed';
+        topup.updatedAt = new Date();
+        await topup.save();
+      }
     }
 
     if (tx?.status === 'success') {
+      if (topup) {
+        return res.redirect(`/account?deposit=success&topup=${ref}`);
+      }
       return res.redirect(`/orders?payment=success&order=${ref}`);
     }
 
     if (['pending', 'ongoing', 'processing'].includes(tx?.status)) {
+      if (topup) {
+        return res.redirect(`/account?deposit=processing&topup=${ref}`);
+      }
       return res.redirect(`/orders?payment=processing&order=${ref}`);
+    }
+
+    if (topup) {
+      return res.redirect(`/account?deposit=failed&topup=${ref}`);
     }
 
     return res.redirect(`/orders?payment=failed&order=${ref}`);
@@ -888,7 +1461,7 @@ app.get('/', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// app.listen(PORT, () => {
-//   console.log(`Server is running at http://localhost:${PORT}`);
-// })
-export default app;
+app.listen(PORT, () => {
+  console.log(`Server is running at http://localhost:${PORT}`);
+})
+// export default app;

@@ -49,7 +49,13 @@
       <div id="dashboardScreen" class="admin-dashboard hidden">
         <div class="admin-toolbar">
           <h1>Orders</h1>
-          <button type="button" class="btn btn-ghost" id="logoutBtn">Log out</button>
+          <div class="admin-toolbar-controls">
+            <div class="admin-search">
+              <label for="orderSearch" class="sr-only">Search orders</label>
+              <input id="orderSearch" type="search" placeholder="Search orders by ID, phone or name" autocomplete="off">
+            </div>
+            <button type="button" class="btn btn-ghost" id="logoutBtn">Log out</button>
+          </div>
         </div>
         <div id="adminOrdersList" class="admin-orders-list"></div>
       </div>

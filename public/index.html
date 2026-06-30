@@ -46,6 +46,7 @@
         <h1>Data bundles for <em>Ghana</em></h1>
         <p>MTN, AirtelTigo & Telecel. Affordable prices. Pay in GHS.</p>
         <p>Delivery is between 1 min to 30 mins</p>
+        <p style="margin-top: 0.75rem; color: #f59e0b; font-weight: 600;">Maintenance notice: The MTN server is under maintenance. Orders are temporarily available for AirtelTigo and Telecel only.</p>
         <a href="#bundles" class="btn btn-primary">Browse bundles</a>
       </div>
       <div class="hero-pattern" aria-hidden="true"></div>
@@ -58,7 +59,6 @@
             <label for="carrierFilter">Network</label>
             <select id="carrierFilter">
               <option value="">All networks</option>
-              <option value="MTN">MTN</option>
               <option value="AirtelTigo">AirtelTigo</option>
               <option value="Telecel">Telecel</option>
             </select>
@@ -198,6 +198,7 @@
           <p class="checkout-pay-msg">Order <strong id="payOrderId"></strong> created. Pay <strong id="payAmount"></strong> via <strong>Paystack</strong> — card or Mobile Money (MoMo).</p>
           <div class="checkout-pay-actions">
             <button type="button" class="btn btn-primary btn-block" id="payNowBtn">Pay with Card or MoMo</button>
+            <button type="button" class="btn btn-ghost btn-block hidden" id="payWithWalletBtn">Pay with Wallet</button>
             <a href="/orders" class="btn btn-ghost btn-block">View my orders</a>
           </div>
         </div>

@@ -6,6 +6,12 @@
 const API_BASE = window.location.origin;
 const AUTH_TOKEN_KEY = 'idealdata_token';
 const AUTH_USER_KEY = 'idealdata_user';
+const AUTH_EXPIRY_KEY = 'idealdata_expires_at';
+const MAINTENANCE_NOTICE = 'The MTN server is under maintenance. Orders are temporarily available for AirtelTigo and Telecel only.';
+
+function isMaintenanceBlockedCarrier(carrier) {
+  return String(carrier || '').trim() === 'MTN';
+}
 
 const state = {
   bundles: [],
@@ -49,6 +55,7 @@ const el = {
   payOrderId: $('#payOrderId'),
   payAmount: $('#payAmount'),
   payNowBtn: $('#payNowBtn'),
+  payWithWalletBtn: $('#payWithWalletBtn'),
   toast: $('#toast'),
   navLogin: $('#navLogin'),
   navAccount: $('#navAccount'),
@@ -56,6 +63,7 @@ const el = {
 };
 
 let lastOrder = null;
+let checkoutTotal = 0;
 
 /**
  * Get JWT token from localStorage
@@ -76,7 +84,17 @@ function authHeaders() {
  * Check if user is logged in
  */
 function isLoggedIn() {
-  return !!getToken();
+  const token = getToken();
+  const expiry = localStorage.getItem(AUTH_EXPIRY_KEY);
+  if (!token) return false;
+  if (!expiry) return true;
+  return new Date(expiry).getTime() > Date.now();
+}
+
+function clearAuth() {
+  localStorage.removeItem(AUTH_TOKEN_KEY);
+  localStorage.removeItem(AUTH_USER_KEY);
+  localStorage.removeItem(AUTH_EXPIRY_KEY);
 }
 
 /**
@@ -136,17 +154,20 @@ function escapeHtml(s) {
  * Render bundles grid
  */
 function renderBundles(bundles) {
+  const visibleBundles = (bundles || []).filter((bundle) => !isMaintenanceBlockedCarrier(bundle.carrier));
+
   el.loading.classList.add('hidden');
   el.emptyState.classList.add('hidden');
 
-  if (!bundles || bundles.length === 0) {
+  if (!visibleBundles || visibleBundles.length === 0) {
     el.emptyState.classList.remove('hidden');
+    el.emptyState.textContent = MAINTENANCE_NOTICE;
     el.bundlesGrid.innerHTML = '';
     el.bundlesGrid.appendChild(el.emptyState);
     return;
   }
 
-  el.bundlesGrid.innerHTML = bundles
+  el.bundlesGrid.innerHTML = visibleBundles
     .map(
       (b) => `
     <article class="bundle-card ${escapeHtml(b.carrier || '').toLowerCase()}" data-id="${escapeHtml(b.id)}">
@@ -188,9 +209,11 @@ function fetchBundles() {
       return r.json();
     })
     .then((data) => {
-      state.bundles = data;
-      data.forEach((b) => (state.bundlesById[b.id] = b));
-      renderBundles(data);
+      const visibleData = (data || []).filter((b) => !isMaintenanceBlockedCarrier(b.carrier));
+      state.bundles = visibleData;
+      state.bundlesById = {};
+      visibleData.forEach((b) => (state.bundlesById[b.id] = b));
+      renderBundles(visibleData);
     })
     .catch((err) => {
       console.error('Fetch bundles error:', err);
@@ -319,6 +342,18 @@ function openCheckout() {
     return;
   }
 
+  if (!isLoggedIn()) {
+    clearAuth();
+    window.location.href = '/auth?redirect=checkout';
+    return;
+  }
+
+  const blockedItem = state.cart.find((item) => isMaintenanceBlockedCarrier(state.bundlesById[item.id]?.carrier || item.carrier));
+  if (blockedItem) {
+    showToast(MAINTENANCE_NOTICE, true);
+    return;
+  }
+
   closeCart();
   lastOrder = null;
   showCheckoutStep('form');
@@ -336,6 +371,27 @@ function openCheckout() {
   }
 
   el.checkoutPhone?.focus();
+
+  // If user is logged in, fetch wallet balance and show wallet-pay button if sufficient
+  if (isLoggedIn()) {
+    fetch(`${API_BASE}/api/account/wallet`, { headers: authHeaders() })
+      .then((r) => r.ok ? r.json() : Promise.reject())
+      .then((data) => {
+        const bal = Number(data.balance || 0);
+        if (el.payWithWalletBtn) {
+          if (bal >= checkoutTotal && checkoutTotal > 0) {
+            el.payWithWalletBtn.classList.remove('hidden');
+            el.payWithWalletBtn.disabled = false;
+          } else {
+            el.payWithWalletBtn.classList.add('hidden');
+          }
+        }
+      }).catch(() => {
+        if (el.payWithWalletBtn) el.payWithWalletBtn.classList.add('hidden');
+      });
+  } else {
+    if (el.payWithWalletBtn) el.payWithWalletBtn.classList.add('hidden');
+  }
 }
 
 /**
@@ -367,6 +423,7 @@ function renderCheckoutSummary() {
     ${lines.join('<br>')} <br>
     <strong>Total: GHS ${total.toFixed(2)}</strong>
   `;
+  checkoutTotal = Math.round(total * 100) / 100;
 }
 
 /**
@@ -377,6 +434,11 @@ function addToCart(id) {
 
   if (!bundle) {
     showToast('Bundle not found', true);
+    return;
+  }
+
+  if (isMaintenanceBlockedCarrier(bundle.carrier)) {
+    showToast(MAINTENANCE_NOTICE, true);
     return;
   }
 
@@ -449,9 +511,19 @@ function placeOrder(e) {
     return;
   }
 
+  const blockedItem = state.cart.find((item) => {
+    const bundle = state.bundlesById[item.id] || item;
+    return isMaintenanceBlockedCarrier(bundle?.carrier);
+  });
+
+  if (blockedItem) {
+    showToast(MAINTENANCE_NOTICE, true);
+    return;
+  }
+
   // Validate phone number matches the carriers in cart
   for (const item of state.cart) {
-    const bundle = state.bundlesById[item.id];
+    const bundle = state.bundlesById[item.id] || item;
     if (bundle && bundle.carrier) {
       if (!isValidPhoneForCarrier(phone, bundle.carrier)) {
         showToast(`Invalid phone number for ${bundle.carrier} network. Please use a ${bundle.carrier} number.`, true);
@@ -552,9 +624,57 @@ function payNow() {
 }
 
 /**
+ * Pay the most recently created order using wallet balance
+ */
+function payWithWallet() {
+  if (!lastOrder) {
+    showToast('No order found', true);
+    return;
+  }
+
+  if (!isLoggedIn()) {
+    showToast('You must be signed in to pay from wallet', true);
+    return;
+  }
+
+  if (el.payWithWalletBtn) {
+    el.payWithWalletBtn.disabled = true;
+    el.payWithWalletBtn.textContent = 'Processing…';
+  }
+
+  fetch(`${API_BASE}/api/payment/wallet`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ orderId: lastOrder.orderId }),
+  })
+    .then(async (r) => {
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || 'Wallet payment failed');
+      return data;
+    })
+    .then((data) => {
+      showToast('Payment successful — order placed');
+      // redirect to orders page with success params
+      window.location.href = `/orders?payment=success&order=${encodeURIComponent(lastOrder.orderId)}`;
+    })
+    .catch((err) => {
+      console.error('Wallet pay error:', err);
+      showToast(err.message || 'Wallet payment failed', true);
+      if (el.payWithWalletBtn) {
+        el.payWithWalletBtn.disabled = false;
+        el.payWithWalletBtn.textContent = 'Pay with Wallet';
+      }
+    });
+}
+
+/**
  * Initialize page
  */
 function init() {
+  if (!isLoggedIn() && getToken()) {
+    clearAuth();
+  }
+
   // Update navigation
   updateAuthNav();
 
@@ -583,12 +703,12 @@ function init() {
   el.cancelCheckout?.addEventListener('click', closeCheckout);
   el.checkoutForm?.addEventListener('submit', placeOrder);
   el.payNowBtn?.addEventListener('click', payNow);
+  el.payWithWalletBtn?.addEventListener('click', payWithWallet);
 
   // Logout
   el.navLogout?.addEventListener('click', function (e) {
     e.preventDefault();
-    localStorage.removeItem(AUTH_TOKEN_KEY);
-    localStorage.removeItem(AUTH_USER_KEY);
+    clearAuth();
     updateAuthNav();
     showToast('Logged out');
     setTimeout(() => {
