@@ -7,10 +7,10 @@ const API_BASE = window.location.origin;
 const AUTH_TOKEN_KEY = 'idealdata_token';
 const AUTH_USER_KEY = 'idealdata_user';
 const AUTH_EXPIRY_KEY = 'idealdata_expires_at';
-const MAINTENANCE_NOTICE = 'The MTN server is under maintenance. Orders are temporarily available for AirtelTigo and Telecel only.';
+const MAINTENANCE_NOTICE = 'This bundle is currently unavailable.';
 
 function isMaintenanceBlockedCarrier(carrier) {
-  return String(carrier || '').trim() === 'MTN';
+  return false;
 }
 
 const state = {
@@ -161,7 +161,7 @@ function renderBundles(bundles) {
 
   if (!visibleBundles || visibleBundles.length === 0) {
     el.emptyState.classList.remove('hidden');
-    el.emptyState.textContent = MAINTENANCE_NOTICE;
+    el.emptyState.textContent = 'No bundles found for the selected filters.';
     el.bundlesGrid.innerHTML = '';
     el.bundlesGrid.appendChild(el.emptyState);
     return;

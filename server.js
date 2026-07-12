@@ -28,8 +28,7 @@ const GMAIL_APP_PASSWORD = (process.env.GMAIL_APP_PASSWORD || '').replace(/\s+/g
 
 const fetch = global.fetch;
 
-const MAINTENANCE_NOTICE = 'MTN orders are temporarily unavailable because the MTN server is under maintenance. You can place orders for AirtelTigo and Telecel only.';
-const BLOCKED_CARRIERS = new Set(['MTN']);
+const MAINTENANCE_NOTICE = 'This bundle is currently unavailable.';
 const SESSION_TTL_MS = 1000 * 60 * 60;
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOGIN_LOCK_WINDOW_MS = 1000 * 60 * 15;
@@ -37,7 +36,7 @@ const PASSWORD_RESET_TTL_MS = 1000 * 60 * 60;
 const AUTH_RATE_LIMITS = new Map();
 
 function isCarrierBlocked(carrier) {
-  return BLOCKED_CARRIERS.has(String(carrier || '').trim());
+  return false;
 }
 
 function isStrongPassword(password) {
@@ -497,12 +496,7 @@ app.get('/api/bundles', async (req, res) => {
     const { carrier, validity } = req.query;
 
     if (carrier) {
-      if (carrier === 'MTN') {
-        return res.json([]);
-      }
       query.carrier = carrier;
-    } else {
-      query.carrier = { $ne: 'MTN' };
     }
 
     if (validity) query.validity = new RegExp(validity, 'i');
@@ -516,7 +510,7 @@ app.get('/api/bundles', async (req, res) => {
 
 // GET Carriers
 app.get('/api/carriers', (_req, res) => {
-  res.json(['AirtelTigo', 'Telecel']);
+  res.json(['MTN', 'AirtelTigo', 'Telecel']);
 });
 
 // POST Sign Up
@@ -775,10 +769,6 @@ app.post('/api/order', verifyToken, async (req, res) => {
   const phoneCarrier = getCarrierFromPhone(phoneClean);
   if (!phoneCarrier) {
     return res.status(400).json({ error: 'Invalid Ghana phone number prefix' });
-  }
-
-  if (phoneCarrier === 'MTN') {
-    return res.status(403).json({ error: MAINTENANCE_NOTICE });
   }
 
   try {
